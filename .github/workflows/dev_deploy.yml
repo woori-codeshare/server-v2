@@ -1,0 +1,65 @@
+name: Woori-Codeshare DEV API CI/CD
+
+on:
+  push:
+    branches:
+      - dev
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-and-run-locally:
+    runs-on: self-hosted
+
+    steps:
+      - name: Runner 준비중...
+        run: echo "Runner is ready."
+
+      - name: 디스크 공간 확인 (정리 전)
+        run: df -h
+
+      - name: 코드 체크아웃
+        uses: actions/checkout@v3
+
+      - name: Docker 시스템 정리
+        run: |
+          sudo docker system prune -af
+          sudo docker volume prune -f
+          sudo docker builder prune -af
+
+      - name: 디스크 공간 확인 (정리 후)
+        run: df -h
+
+      - name: JDK 17 설정
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: secret.yml 파일 설정
+        run: |
+          echo "$SECRET_YML_CONTENT" > ./src/main/resources/secret.yml
+        env:
+          SECRET_YML_CONTENT: ${{ secrets.DEV_SECRET_YML }}
+
+      - name: Gradle 실행 권한 부여
+        run: chmod +x ./gradlew
+
+      - name: bootJar 빌드
+        run: ./gradlew bootJar
+
+      - name: 기존 컨테이너 및 이미지 삭제
+        run: |
+          sudo docker stop server || true
+          sudo docker rm server || true
+          sudo docker rmi dev-server || true
+
+      - name: 도커 이미지 빌드
+        run: |
+          sudo docker build -t dev-server .
+
+      - name: 도커 컨테이너 실행
+        run: |
+          sudo docker run -d --name server -p 8080:8080 dev-server
