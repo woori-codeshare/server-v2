@@ -9,14 +9,17 @@ import com.woori.codeshare.snapshot.controller.dto.SnapshotResponseDTO;
 import com.woori.codeshare.snapshot.domain.Snapshot;
 import com.woori.codeshare.snapshot.repository.SnapshotRepository;
 import com.woori.codeshare.vote.service.VoteService;
+import com.woori.codeshare.socket.service.SnapshotSocketService;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class SnapshotService {
@@ -24,6 +27,7 @@ public class SnapshotService {
     private final SnapshotRepository snapshotRepository;
     private final RoomRepository roomRepository;
     private final VoteService voteService;
+    private final SnapshotSocketService snapshotSocketService;
 
     /**
      * 스냅샷 저장 로직 (기본 투표 생성 포함)
@@ -56,7 +60,7 @@ public class SnapshotService {
         Long voteId = voteService.createDefaultVoteForSnapshot(savedSnapshot.getSnapshotId());
 
         // Response DTO 생성
-        return SnapshotResponseDTO.SnapshotCreateResponse.builder()
+        SnapshotResponseDTO.SnapshotCreateResponse response = SnapshotResponseDTO.SnapshotCreateResponse.builder()
                 .roomId(room.getRoomId())
                 .snapshotId(savedSnapshot.getSnapshotId())
                 .title(savedSnapshot.getTitle())
@@ -65,6 +69,27 @@ public class SnapshotService {
                 .voteId(voteId)
                 .createdAt(savedSnapshot.getCreatedAt())
                 .build();
+
+        // WebSocket 알림 전송 - 스냅샷 생성 알림
+        try {
+            SnapshotResponseDTO.SnapshotDetailResponse snapshotDetail =
+                    SnapshotResponseDTO.SnapshotDetailResponse.builder()
+                            .snapshotId(savedSnapshot.getSnapshotId())
+                            .title(savedSnapshot.getTitle())
+                            .description(savedSnapshot.getDescription())
+                            .code(savedSnapshot.getCode())
+                            .createdAt(savedSnapshot.getCreatedAt())
+                            .comments(List.of()) // 새로 생성된 스냅샷은 댓글이 없음
+                            .build();
+
+            snapshotSocketService.notifySnapshotCreated(room, snapshotDetail);
+
+        } catch (Exception e) {
+            // WebSocket 알림 실패 시 로깅만 하고 계속 진행
+            log.warn("스냅샷 생성 WebSocket 알림 전송 실패: roomId={}, snapshotId={}, error={}", room.getRoomId(), savedSnapshot.getSnapshotId(), e.getMessage());
+        }
+
+        return response;
     }
 
 
