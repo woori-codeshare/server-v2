@@ -1,9 +1,11 @@
 package com.woori.codeshare.vote.service;
 
+import com.woori.codeshare.room.domain.Room;
 import com.woori.codeshare.snapshot.domain.Snapshot;
 import com.woori.codeshare.snapshot.exception.SnapshotErrorCode;
 import com.woori.codeshare.snapshot.exception.SnapshotException;
 import com.woori.codeshare.snapshot.repository.SnapshotRepository;
+import com.woori.codeshare.socket.service.VoteSocketService;
 import com.woori.codeshare.vote.controller.dto.VoteRequestDTO;
 import com.woori.codeshare.vote.controller.dto.VoteResponseDTO;
 import com.woori.codeshare.vote.domain.Vote;
@@ -32,6 +34,7 @@ public class VoteService {
     private final VoteRepository voteRepository;
     private final SnapshotRepository snapshotRepository;
     private final VoteRecordRepository voteRecordRepository;
+    private final VoteSocketService voteSocketService;
 
     /**
      * 투표 생성 로직
@@ -90,6 +93,17 @@ public class VoteService {
         voteRecordRepository.save(voteRecord);
 
         log.info("[Vote] 투표 완료: voteId={}, sessionId={}, voteType={}", voteId, sessionId, request.getVoteType());
+
+        // WebSocket 알림 전송 - 투표 결과 업데이트
+        try {
+            Room room = vote.getSnapshot().getRoom();
+            VoteResponseDTO.VoteResultResponse voteResult = getVoteResults(voteId);
+            voteSocketService.notifyVoteUpdated(room, voteId, voteResult);
+
+        } catch (Exception e) {
+            // WebSocket 알림 실패 시 로깅만 하고 계속 진행
+            log.warn("투표 결과 WebSocket 알림 전송 실패: voteId={}, error={}", voteId, e.getMessage());
+        }
 
         return VoteResponseDTO.VoteCastResponse.builder()
                 .voteId(vote.getVoteId())

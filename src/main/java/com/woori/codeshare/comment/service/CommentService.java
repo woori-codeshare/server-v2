@@ -6,23 +6,28 @@ import com.woori.codeshare.comment.domain.Comment;
 import com.woori.codeshare.comment.exception.CommentErrorCode;
 import com.woori.codeshare.comment.exception.CommentException;
 import com.woori.codeshare.comment.repository.CommentRepository;
+import com.woori.codeshare.room.domain.Room;
 import com.woori.codeshare.snapshot.domain.Snapshot;
 import com.woori.codeshare.snapshot.exception.SnapshotErrorCode;
 import com.woori.codeshare.snapshot.exception.SnapshotException;
 import com.woori.codeshare.snapshot.repository.SnapshotRepository;
+import com.woori.codeshare.socket.service.CommentSocketService;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CommentService {
 
     private final CommentRepository commentRepository;
     private final SnapshotRepository snapshotRepository;
+    private final CommentSocketService commentSocketService;
 
     /**
      * 댓글 등록 로직
@@ -49,6 +54,27 @@ public class CommentService {
 
         Comment savedComment = commentRepository.save(comment);
 
+        // WebSocket 알림 전송 - 댓글 생성 알림
+        try {
+            Room room = snapshot.getRoom();
+
+            CommentResponseDTO.CommentListResponse commentDetail = 
+                CommentResponseDTO.CommentListResponse.builder()
+                    .commentId(savedComment.getCommentId())
+                    .parentCommentId(parentComment != null ? parentComment.getCommentId() : null)
+                    .content(savedComment.getContent())
+                    .solved(savedComment.isSolved())
+                    .createdAt(savedComment.getCreatedAt())
+                    .updatedAt(savedComment.getUpdatedAt())
+                    .build();
+                    
+            commentSocketService.notifyCommentCreated(room, snapshotId, commentDetail);
+
+        } catch (Exception e) {
+            // WebSocket 알림 실패 시 로깅만 하고 계속 진행
+            log.warn("댓글 생성 WebSocket 알림 전송 실패: snapshotId={}, commentId={}, error={}", snapshotId, savedComment.getCommentId(), e.getMessage());
+        }
+
         return CommentResponseDTO.CommentCreateResponse.builder()
                 .commentId(savedComment.getCommentId())
                 .parentCommentId(parentComment != null ? parentComment.getCommentId() : null)
@@ -71,6 +97,27 @@ public class CommentService {
         comment.setSolved(request.isSolved());
         Comment updatedComment = commentRepository.save(comment);
 
+        // WebSocket 알림 전송 - 댓글 해결 상태 변경 알림
+        try {
+            Room room = comment.getSnapshot().getRoom();
+
+            CommentResponseDTO.CommentListResponse commentDetail = 
+                CommentResponseDTO.CommentListResponse.builder()
+                    .commentId(updatedComment.getCommentId())
+                    .parentCommentId(updatedComment.getParentComment() != null ? updatedComment.getParentComment().getCommentId() : null)
+                    .content(updatedComment.getContent())
+                    .solved(updatedComment.isSolved())
+                    .createdAt(updatedComment.getCreatedAt())
+                    .updatedAt(updatedComment.getUpdatedAt())
+                    .build();
+                    
+            commentSocketService.notifyCommentResolved(room, comment.getSnapshot().getSnapshotId(), commentDetail);
+
+        } catch (Exception e) {
+            // WebSocket 알림 실패 시 로깅만 하고 계속 진행
+            log.warn("댓글 해결 상태 변경 WebSocket 알림 전송 실패: commentId={}, error={}", updatedComment.getCommentId(), e.getMessage());
+        }
+
         return CommentResponseDTO.CommentResolveResponse.builder()
                 .commentId(updatedComment.getCommentId())
                 .solved(updatedComment.isSolved())
@@ -92,6 +139,27 @@ public class CommentService {
 
         Comment updatedComment = commentRepository.save(comment);
 
+        // WebSocket 알림 전송 - 댓글 수정 알림
+        try {
+            Room room = comment.getSnapshot().getRoom();
+
+            CommentResponseDTO.CommentListResponse commentDetail = 
+                CommentResponseDTO.CommentListResponse.builder()
+                    .commentId(updatedComment.getCommentId())
+                    .parentCommentId(updatedComment.getParentComment() != null ? updatedComment.getParentComment().getCommentId() : null)
+                    .content(updatedComment.getContent())
+                    .solved(updatedComment.isSolved())
+                    .createdAt(updatedComment.getCreatedAt())
+                    .updatedAt(updatedComment.getUpdatedAt())
+                    .build();
+                    
+            commentSocketService.notifyCommentUpdated(room, comment.getSnapshot().getSnapshotId(), commentDetail);
+
+        } catch (Exception e) {
+            // WebSocket 알림 실패 시 로깅만 하고 계속 진행
+            log.warn("댓글 수정 WebSocket 알림 전송 실패: commentId={}, error={}", updatedComment.getCommentId(), e.getMessage());
+        }
+
         return CommentResponseDTO.CommentUpdateResponse.builder()
                 .commentId(updatedComment.getCommentId())
                 .content(updatedComment.getContent())
@@ -108,7 +176,20 @@ public class CommentService {
     public void deleteComment(Long commentId) {
         Comment comment = commentRepository.findById(commentId)
                 .orElseThrow(() -> new CommentException(CommentErrorCode.COMMENT_NOT_FOUND));
+        
+        // 삭제 전에 필요한 정보 저장
+        Room room = comment.getSnapshot().getRoom();
+        Long snapshotId = comment.getSnapshot().getSnapshotId();
+        
         commentRepository.delete(comment);
+        
+        // WebSocket 알림 전송 - 댓글 삭제 알림
+        try {
+            commentSocketService.notifyCommentDeleted(room, snapshotId, commentId);
+        } catch (Exception e) {
+            // WebSocket 알림 실패 시 로깅만 하고 계속 진행
+            log.warn("댓글 삭제 WebSocket 알림 전송 실패: commentId={}, error={}", commentId, e.getMessage());
+        }
     }
 
     /**
