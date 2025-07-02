@@ -21,7 +21,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
         // 클라이언트가 구독할 경로 설정 (브로드캐스트 전송 경로)
-        registry.enableSimpleBroker("/topic");
+        registry.enableSimpleBroker("/topic")
+                .setHeartbeatValue(new long[]{10000, 10000}); // 10초마다 클라이언트와 서버 간의 하트비트 메시지 전송
+
         // 클라이언트가 서버로 메시지를 보낼 경로 설정
         registry.setApplicationDestinationPrefixes("/app");
     }
