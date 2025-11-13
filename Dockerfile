@@ -1,6 +1,6 @@
 # Reference: https://spring.io/guides/gs/spring-boot-docker/
 
-FROM openjdk:17-jdk-slim
+FROM openjdk:17.0.1-jdk-slim
 
 # 인자 설정 - Jar_File
 ARG JAR_FILE=build/libs/*.jar
